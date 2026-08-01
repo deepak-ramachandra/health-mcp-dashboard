@@ -1,6 +1,5 @@
 .streamlit/secrets.toml
-.streamlit/mcp_tokens.json
-.streamlit/mcp_tokens_secrets.toml
+.streamlit/nutrition_replica.db*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

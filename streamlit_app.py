@@ -5,7 +5,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from mcp_client import NoInteractiveAuthError, call_tool
+import data_sources
 
 st.set_page_config(
     page_title="Health dashboard",
@@ -26,23 +26,24 @@ MUTED_CELL = "#e1e0d9"
 
 @st.cache_data(ttl="2m", show_spinner="Loading today's meals...")
 def load_meals_today() -> list[dict]:
-    return call_tool("get_meals_today")
+    return data_sources.get_meals_today()
 
 
 @st.cache_data(ttl="15m", show_spinner="Loading workouts...")
 def load_workouts(max_pages: int = 6) -> list[dict]:
     workouts = []
     for page in range(1, max_pages + 1):
-        data = call_tool("get_workouts", {"page": page, "page_size": 10})
+        data = data_sources.get_workouts(page, 10)
         workouts.extend(data["workouts"])
         if page >= data.get("page_count", page):
             break
     return workouts
 
 
-@st.cache_data(ttl="15m", show_spinner="Loading transactions...")
+@st.cache_data(ttl="15m", show_spinner="Syncing and loading transactions...")
 def load_transactions(start_date: str, end_date: str) -> list[dict]:
-    return call_tool("get_transactions_by_date_range", {"start_date": start_date, "end_date": end_date})
+    data_sources.sync_transactions()
+    return data_sources.get_transactions_by_date_range(start_date, end_date)
 
 
 # -----------------------------------------------------------------------------
@@ -61,11 +62,8 @@ st.subheader("Today's progress")
 
 try:
     meals_today = load_meals_today()
-except NoInteractiveAuthError as e:
-    st.error(str(e), icon=":material/lock:")
-    st.stop()
 except Exception as e:
-    st.error(f"Couldn't reach the MCP server: {e}", icon=":material/error:")
+    st.error(f"Couldn't load today's meals: {e}", icon=":material/error:")
     st.stop()
 
 calories_today = sum(m.get("calories") or 0 for m in meals_today)
@@ -122,9 +120,6 @@ st.subheader("Gym attendance")
 
 try:
     workouts = load_workouts()
-except NoInteractiveAuthError as e:
-    st.error(str(e), icon=":material/lock:")
-    st.stop()
 except Exception as e:
     st.error(f"Couldn't load workouts: {e}", icon=":material/error:")
     workouts = []
@@ -192,9 +187,6 @@ st.subheader("Spending this week")
 week_start = today - timedelta(days=6)
 try:
     transactions = load_transactions(str(week_start), str(today))
-except NoInteractiveAuthError as e:
-    st.error(str(e), icon=":material/lock:")
-    st.stop()
 except Exception as e:
     st.error(f"Couldn't load transactions: {e}", icon=":material/error:")
     transactions = []

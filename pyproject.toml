@@ -6,7 +6,9 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "altair>=6.2.2",
-    "mcp==1.29.0",
+    "httpx>=0.28.1",
+    "libsql>=0.1.11",
     "pandas>=3.0.5",
+    "pytz>=2026.3.post1",
     "streamlit>=1.60.0",
 ]
