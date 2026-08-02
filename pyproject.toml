@@ -7,7 +7,10 @@ requires-python = ">=3.13"
 dependencies = [
     "altair>=6.2.2",
     "httpx>=0.28.1",
+    "ipykernel>=7.3.0",
+    "ipywidgets>=8.1.8",
     "libsql>=0.1.11",
+    "matplotlib>=3.11.1",
     "pandas>=3.0.5",
     "pytz>=2026.3.post1",
     "streamlit>=1.60.0",

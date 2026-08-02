@@ -91,6 +91,20 @@ def get_meals_today() -> list[dict]:
     return get_meals_by_date(today)
 
 
+def get_meals_by_date_range(start_date: str, end_date: str) -> list[dict]:
+    start_utc, _ = _nyc_day_to_utc_range(start_date)
+    _, end_utc = _nyc_day_to_utc_range(end_date)
+    conn = _get_db()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM meals WHERE logged_at >= ? AND logged_at < ? ORDER BY logged_at",
+            (start_utc, end_utc),
+        ).fetchall()
+        return [_meal_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def get_workouts(page: int, page_size: int) -> dict:
     headers = {"accept": "application/json", "api-key": _secret("HEVY_API_KEY")}
     resp = httpx.get(
