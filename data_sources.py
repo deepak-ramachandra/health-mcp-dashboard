@@ -9,7 +9,7 @@ Streamlit Community Cloud): TURSO_DATABASE_URL, TURSO_AUTH_TOKEN,
 HEVY_API_KEY, PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ACCESS_TOKEN.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -54,12 +54,6 @@ def _get_db():
     return conn
 
 
-def _nyc_day_to_utc_range(date_str: str) -> tuple[str, str]:
-    day_start = NYC.localize(datetime.strptime(date_str, "%Y-%m-%d"))
-    day_end = day_start + timedelta(days=1)
-    return day_start.astimezone(pytz.utc).isoformat(), day_end.astimezone(pytz.utc).isoformat()
-
-
 def _meal_row_to_dict(row) -> dict:
     return {
         "id": row[0],
@@ -68,18 +62,19 @@ def _meal_row_to_dict(row) -> dict:
         "protein_g": row[3],
         "carbs_g": row[4],
         "fat_g": row[5],
-        "logged_at": datetime.fromisoformat(row[6]).astimezone(NYC).isoformat(),
+        "logged_at": row[6],
         "desc": row[7],
     }
 
 
 def get_meals_by_date(date_str: str) -> list[dict]:
-    start_utc, end_utc = _nyc_day_to_utc_range(date_str)
     conn = _get_db()
     try:
+        # logged_at is stored NYC-local with its correct offset (e.g.
+        # -04:00/-05:00 across DST), so the date is just its first 10 chars.
         rows = conn.execute(
-            "SELECT * FROM meals WHERE logged_at >= ? AND logged_at < ? ORDER BY logged_at",
-            (start_utc, end_utc),
+            "SELECT * FROM meals WHERE substr(logged_at, 1, 10) = ? ORDER BY logged_at",
+            (date_str,),
         ).fetchall()
         return [_meal_row_to_dict(r) for r in rows]
     finally:
@@ -92,13 +87,12 @@ def get_meals_today() -> list[dict]:
 
 
 def get_meals_by_date_range(start_date: str, end_date: str) -> list[dict]:
-    start_utc, _ = _nyc_day_to_utc_range(start_date)
-    _, end_utc = _nyc_day_to_utc_range(end_date)
     conn = _get_db()
     try:
         rows = conn.execute(
-            "SELECT * FROM meals WHERE logged_at >= ? AND logged_at < ? ORDER BY logged_at",
-            (start_utc, end_utc),
+            "SELECT * FROM meals WHERE substr(logged_at, 1, 10) >= ? "
+            "AND substr(logged_at, 1, 10) <= ? ORDER BY logged_at",
+            (start_date, end_date),
         ).fetchall()
         return [_meal_row_to_dict(r) for r in rows]
     finally:
