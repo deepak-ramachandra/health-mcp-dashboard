@@ -101,11 +101,6 @@ def load_transactions(start_date: str, end_date: str) -> list[dict]:
 # -----------------------------------------------------------------------------
 # Header
 
-# with st.container(horizontal=True, horizontal_alignment="right"):
-#     if st.button(":material/refresh:", type="tertiary"):
-#         st.cache_data.clear()
-#         st.rerun()
-
 body = st.container(gap="small")
 
 # -----------------------------------------------------------------------------
@@ -326,3 +321,11 @@ with body:
         )
         st.altair_chart(chart, width="stretch")
         st.caption("Excludes credit-card payments and payroll/ACH transfers.")
+
+# -----------------------------------------------------------------------------
+# Reload
+
+with st.container(horizontal=True, horizontal_alignment="center"):
+    if st.button(":material/refresh: Reload", type="tertiary"):
+        st.cache_data.clear()
+        st.rerun()
