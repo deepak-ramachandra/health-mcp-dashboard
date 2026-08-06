@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import altair as alt
@@ -18,7 +19,7 @@ st.markdown(hide_menu_style, unsafe_allow_html=True)
 
 st.set_page_config(
     page_title="Health dashboard",
-    page_icon=":material/monitor_heart:",
+    page_icon=str(Path(__file__).parent / "icons8-dumbbell-100.png"),
     layout="wide",
 )
 
