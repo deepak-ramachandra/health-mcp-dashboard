@@ -111,6 +111,18 @@ def get_workouts(page: int, page_size: int) -> dict:
     return resp.json()
 
 
+def get_body_measurements(page: int, page_size: int) -> dict:
+    headers = {"accept": "application/json", "api-key": _secret("HEVY_API_KEY")}
+    resp = httpx.get(
+        f"{HEVY_URL}/body_measurements",
+        headers=headers,
+        params={"page": page, "pageSize": page_size},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 def _plaid_creds() -> dict:
     return {
         "client_id": _secret("PLAID_CLIENT_ID"),

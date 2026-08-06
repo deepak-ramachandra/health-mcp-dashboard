@@ -29,6 +29,9 @@ PROTEIN_GOAL = 140
 CALORIE_EXPENDITURE = 2400  # TDEE, for daily deficit = expenditure - intake
 BLUE = "#2a78d6"
 GOOD_GREEN = "#0ca30c"
+WEIGHT_PURPLE = "#8b5cf6"
+WEIGHT_EWMA_SPAN = 7
+WEIGHT_JOURNEY_START = date(2026, 7, 14)
 
 # Semi-ring gauge geometry (shared by both rings). st.html() strips <svg>
 # tags, so the ring is drawn with a conic-gradient masked down to a stroke,
@@ -91,6 +94,17 @@ def load_workouts(max_pages: int = 6) -> list[dict]:
 @st.cache_data(ttl="15m", show_spinner="Loading nutrition history...")
 def load_meals_range(start_date: str, end_date: str) -> list[dict]:
     return data_sources.get_meals_by_date_range(start_date, end_date)
+
+
+@st.cache_data(ttl="15m", show_spinner="Loading body measurements...")
+def load_body_measurements(max_pages: int = 10) -> list[dict]:
+    measurements = []
+    for page in range(1, max_pages + 1):
+        data = data_sources.get_body_measurements(page, 10)
+        measurements.extend(data["body_measurements"])
+        if page >= data.get("page_count", page):
+            break
+    return measurements
 
 
 @st.cache_data(ttl="15m", show_spinner="Syncing and loading transactions...")
@@ -215,30 +229,41 @@ df_deficit = pd.DataFrame(
 df_deficit["day_label"] = df_deficit["date"].apply(lambda d: d.strftime("%a %-d"))
 rolling_avg_deficit = df_deficit["deficit"].mean()
 
-with body:
-    with st.container(border=True):
-        st.markdown("**Exercises** &mdash; past 7 days")
-        chart = (
-            alt.Chart(df_exercises)
-            .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4, size=24, color=GOOD_GREEN, tooltip=False)
-            .encode(
-                x=alt.X(
-                    "day_label:N",
-                    sort=list(df_exercises["day_label"]),
-                    axis=alt.Axis(title=None, labelAngle=0),
-                ),
-                y=alt.Y(
-                    "exercises:Q",
-                    axis=alt.Axis(title="Exercises", tickMinStep=1),
-                    scale=alt.Scale(zero=True),
-                ),
-            )
-            .properties(height=220)
-            .configure_view(strokeWidth=0)
-            .configure_axis(gridColor=ring_track, domainColor=ring_muted_ink)
-        )
-        st.altair_chart(chart, width="stretch")
+# -----------------------------------------------------------------------------
+# Weight - EWMA since the start of the weight-loss journey
 
+try:
+    body_measurements = load_body_measurements()
+except Exception as e:
+    with body:
+        st.error(f"Couldn't load body measurements: {e}", icon=":material/error:")
+    body_measurements = []
+
+df_weight_raw = pd.DataFrame(body_measurements)
+if not df_weight_raw.empty:
+    df_weight_raw["date"] = pd.to_datetime(df_weight_raw["date"]).dt.date
+    df_weight_raw = df_weight_raw.sort_values(["date", "created_at"])
+    weight_by_date = df_weight_raw.groupby("date")["weight_kg"].last()
+else:
+    weight_by_date = pd.Series(dtype=float)
+
+df_weight = pd.DataFrame(
+    {"date": pd.date_range(WEIGHT_JOURNEY_START, today, freq="D").date}
+)
+df_weight["weight_kg"] = df_weight["date"].map(weight_by_date)
+# Weigh-ins are sparse, especially early on; fill gaps with the next
+# available reading so the EWMA isn't skewed by missing days.
+df_weight["weight_kg"] = df_weight["weight_kg"].bfill()
+df_weight["ewma"] = df_weight["weight_kg"].ewm(span=WEIGHT_EWMA_SPAN, adjust=False).mean()
+
+latest_weight_ewma = df_weight["ewma"].dropna()
+weight_header = (
+    f"**Weight** &mdash; 7-day EWMA: {latest_weight_ewma.iloc[-1]:,.1f} kg"
+    if not latest_weight_ewma.empty
+    else "**Weight** &mdash; 7-day EWMA"
+)
+
+with body:
     with st.container(border=True):
         st.markdown(f"**Calorie deficit** &mdash; 7-day avg: {rolling_avg_deficit:,.0f} kcal")
         bars = (
@@ -270,6 +295,55 @@ with body:
         )
         st.altair_chart(chart, width="stretch")
         st.caption(f"Expenditure assumed at {CALORIE_EXPENDITURE:,} kcal/day. Dashed line is the 7-day average.")
+
+    with st.container(border=True):
+        st.markdown(weight_header)
+        chart = (
+            alt.Chart(df_weight)
+            .mark_line(point=True, color=WEIGHT_PURPLE, strokeWidth=2.5, tooltip=False)
+            .encode(
+                x=alt.X(
+                    "date:T",
+                    axis=alt.Axis(title=None, format="%b %-d", labelAngle=0),
+                ),
+                y=alt.Y(
+                    "ewma:Q",
+                    axis=alt.Axis(title="Weight (kg)"),
+                    scale=alt.Scale(zero=False),
+                ),
+            )
+            .properties(height=220)
+            .configure_view(strokeWidth=0)
+            .configure_axis(gridColor=ring_track, domainColor=ring_muted_ink)
+        )
+        st.altair_chart(chart, width="stretch")
+        st.caption(
+            f"Since {WEIGHT_JOURNEY_START.strftime('%b %-d')}. Gaps in logged weigh-ins are filled with the "
+            "next available reading; line is a 7-day EWMA."
+        )
+
+    with st.container(border=True):
+        st.markdown("**Exercises** &mdash; past 7 days")
+        chart = (
+            alt.Chart(df_exercises)
+            .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4, size=24, color=GOOD_GREEN, tooltip=False)
+            .encode(
+                x=alt.X(
+                    "day_label:N",
+                    sort=list(df_exercises["day_label"]),
+                    axis=alt.Axis(title=None, labelAngle=0),
+                ),
+                y=alt.Y(
+                    "exercises:Q",
+                    axis=alt.Axis(title="Exercises", tickMinStep=1),
+                    scale=alt.Scale(zero=True),
+                ),
+            )
+            .properties(height=220)
+            .configure_view(strokeWidth=0)
+            .configure_axis(gridColor=ring_track, domainColor=ring_muted_ink)
+        )
+        st.altair_chart(chart, width="stretch")
 
 # -----------------------------------------------------------------------------
 # Weekly spend
