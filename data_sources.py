@@ -99,6 +99,66 @@ def get_meals_by_date_range(start_date: str, end_date: str) -> list[dict]:
         conn.close()
 
 
+def _template_row_to_dict(row) -> dict:
+    return {
+        "id": row[0],
+        "name": row[1],
+        "calories": row[2],
+        "protein_g": row[3],
+        "carbs_g": row[4],
+        "fat_g": row[5],
+        "notes": row[6],
+    }
+
+
+def get_meal_templates() -> list[dict]:
+    conn = _get_db()
+    try:
+        rows = conn.execute(
+            "SELECT id, name, calories, protein_g, carbs_g, fat_g, notes "
+            "FROM meal_templates ORDER BY name"
+        ).fetchall()
+        return [_template_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def log_meal_from_template(template_id: str, meal_type: str, logged_at: str) -> dict:
+    """Log a meal using macros from a saved template. Mirrors the
+    log_meal_from_template tool on the MCP server."""
+    conn = _get_db()
+    try:
+        row = conn.execute(
+            "SELECT id, name, calories, protein_g, carbs_g, fat_g, notes "
+            "FROM meal_templates WHERE id = ?",
+            (template_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"No meal template found with id {template_id}")
+        t = _template_row_to_dict(row)
+        conn.execute(
+            "INSERT INTO meals (meal_type, calories, protein_g, carbs_g, fat_g, logged_at, desc) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                meal_type,
+                t["calories"],
+                t["protein_g"],
+                t["carbs_g"],
+                t["fat_g"],
+                logged_at,
+                t["name"],
+            ),
+        )
+        conn.commit()
+        meal_row = conn.execute(
+            "SELECT * FROM meals WHERE logged_at = ? AND meal_type = ? ORDER BY rowid DESC LIMIT 1",
+            (logged_at, meal_type),
+        ).fetchone()
+        return _meal_row_to_dict(meal_row)
+    finally:
+        conn.close()
+
+
 def get_workouts(page: int, page_size: int) -> dict:
     headers = {"accept": "application/json", "api-key": _secret("HEVY_API_KEY")}
     resp = httpx.get(
