@@ -96,6 +96,11 @@ def load_meals_range(start_date: str, end_date: str) -> list[dict]:
     return data_sources.get_meals_by_date_range(start_date, end_date)
 
 
+@st.cache_data(ttl="5m", show_spinner="Loading meal templates...")
+def load_meal_templates() -> list[dict]:
+    return data_sources.get_meal_templates()
+
+
 @st.cache_data(ttl="15m", show_spinner="Loading body measurements...")
 def load_body_measurements(max_pages: int = 10) -> list[dict]:
     measurements = []
@@ -180,6 +185,52 @@ with body:
             )
         else:
             st.caption("Nothing logged yet today.")
+
+        try:
+            meal_templates = load_meal_templates()
+        except Exception as e:
+            meal_templates = []
+            st.caption(f"Couldn't load meal templates: {e}")
+
+        if meal_templates:
+            st.divider()
+            template_options = {
+                (
+                    f"{t['name']} — {t['calories']:.0f} kcal"
+                    if t.get("calories") is not None
+                    else t["name"]
+                ): t["id"]
+                for t in meal_templates
+            }
+            with st.form("log_from_template", border=False):
+                cols = st.columns([3, 2, 2, 1])
+                template_label = cols[0].selectbox(
+                    "Template", template_options.keys(), label_visibility="collapsed"
+                )
+                meal_type = cols[1].selectbox(
+                    "Meal type",
+                    ["breakfast", "lunch", "dinner", "snack"],
+                    label_visibility="collapsed",
+                )
+                log_time = cols[2].time_input(
+                    "Time",
+                    value=datetime.now(NYC).time(),
+                    label_visibility="collapsed",
+                )
+                logged = cols[3].form_submit_button("Log", width="stretch")
+            if logged:
+                logged_at = datetime.combine(
+                    datetime.now(NYC).date(), log_time, tzinfo=NYC
+                ).isoformat()
+                try:
+                    data_sources.log_meal_from_template(
+                        template_options[template_label], meal_type, logged_at
+                    )
+                except Exception as e:
+                    st.error(f"Couldn't log meal: {e}", icon=":material/error:")
+                else:
+                    st.cache_data.clear()
+                    st.rerun()
 
 # -----------------------------------------------------------------------------
 # Exercises per day + calorie deficit (past 7 days, excluding today)
