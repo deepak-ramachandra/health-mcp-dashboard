@@ -1,0 +1,45 @@
+order = 2
+id = "anthropic-fellowship"
+name = "Anthropic Fellowship Roadmap"
+subtitle = "Close the empirical-LLM-research gap before applying"
+kind = "roadmap"
+source = "anthropic_fellowship_roadmap.pdf"
+# The doc itself is dated June 2026, but no work had started on any of its 5
+# steps as of when this tracker was set up - start_date (tracking start) is
+# kept separate from doc_date so pace isn't measured from a date before any
+# work began.
+doc_date = 2026-06-01
+start_date = 2026-08-23
+horizon_weeks = 26          # "apply after ~6 months of evidence-building"
+accent = "#199e70"
+item_label = "steps"
+
+[[phases]]
+id = "f"
+name = "Anthropic Fellowship Roadmap"
+detail = "Close the one real gap — evidence of empirical LLM research — before applying."
+
+  [[phases.items]]
+  id = "f-1"
+  label = "Complete ARENA (transformers, mech interp, RLHF)"
+  weeks = 8
+
+  [[phases.items]]
+  id = "f-2"
+  label = "Bridge project exploiting DP/bandits background (privacy auditing, DP-SGD, or RLHF exploration)"
+  weeks = 8
+
+  [[phases.items]]
+  id = "f-3"
+  label = "Reproduce one safety/interpretability paper, publicly, on GitHub"
+  weeks = 6
+
+  [[phases.items]]
+  id = "f-4"
+  label = "Apply to MATS or SPAR in parallel"
+  weeks = 2
+
+  [[phases.items]]
+  id = "f-5"
+  label = "Build a public trail — GitHub, blog, LessWrong/Alignment Forum"
+  weeks = 2

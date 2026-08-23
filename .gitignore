@@ -1,5 +1,8 @@
 .streamlit/secrets.toml
 .streamlit/nutrition_replica.db*
+_to_delete/
+test.ipynb
+.DS_Store
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

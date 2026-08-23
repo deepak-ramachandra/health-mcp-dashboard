@@ -7,15 +7,9 @@ import pandas as pd
 import streamlit as st
 
 import data_sources
+from ui_components import HIDE_MENU_STYLE, progress_ring, ring_theme
 
-hide_menu_style = """
-        <style>
-        #MainMenu {visibility: hidden;}
-        header[data-testid="stHeader"] {display: none;}
-        [data-testid="stMainBlockContainer"] {padding-top: 1rem;}
-        </style>
-        """
-st.markdown(hide_menu_style, unsafe_allow_html=True)
+st.markdown(HIDE_MENU_STYLE, unsafe_allow_html=True)
 
 st.set_page_config(
     page_title="Health dashboard",
@@ -29,47 +23,10 @@ PROTEIN_GOAL = 140
 CALORIE_EXPENDITURE = 2400  # TDEE, for daily deficit = expenditure - intake
 BLUE = "#2a78d6"
 GOOD_GREEN = "#0ca30c"
+CREDIT_ORANGE = "#e0862b"
 WEIGHT_PURPLE = "#8b5cf6"
 WEIGHT_EWMA_SPAN = 7
 WEIGHT_JOURNEY_START = date(2026, 7, 14)
-
-# Semi-ring gauge geometry (shared by both rings). st.html() strips <svg>
-# tags, so the ring is drawn with a conic-gradient masked down to a stroke,
-# clipped to its top half - no SVG involved.
-_RING_SIZE = 140  # circle diameter, px
-_RING_THICKNESS = 14  # stroke width, px
-
-
-def _progress_ring(
-    value: float,
-    goal: float,
-    unit: str,
-    label: str,
-    accent: str,
-    track: str,
-    ink: str,
-    muted_ink: str,
-) -> str:
-    fraction = max(0.0, min(value / goal, 1.0)) if goal else 0.0
-    progress_deg = fraction * 180
-    display_value = f"{value:,.0f}"
-    radius = _RING_SIZE // 2
-    return f"""
-    <div style="flex:0 0 auto; text-align:center; font-family:inherit;">
-      <div style="position:relative; width:{_RING_SIZE}px; height:{radius + 8}px; margin:0 auto; overflow:hidden;">
-        <div style="position:absolute; top:0; left:0; width:{_RING_SIZE}px; height:{_RING_SIZE}px; border-radius:50%;
-                    background:conic-gradient(from -90deg, {accent} 0deg {progress_deg:.1f}deg, {track} {progress_deg:.1f}deg 180deg, transparent 180deg 360deg);
-                    -webkit-mask:radial-gradient(farthest-side, transparent calc(50% - {_RING_THICKNESS}px), #000 calc(50% - {_RING_THICKNESS}px));
-                    mask:radial-gradient(farthest-side, transparent calc(50% - {_RING_THICKNESS}px), #000 calc(50% - {_RING_THICKNESS}px));">
-        </div>
-        <div style="position:absolute; left:0; right:0; bottom:0; text-align:center;">
-          <div style="font-size:1.5rem; font-weight:600; color:{ink}; line-height:1.1;">{display_value}{unit}</div>
-          <div style="font-size:0.72rem; color:{muted_ink};">of {goal:,.0f}{unit} {label}</div>
-        </div>
-      </div>
-    </div>
-    """
-
 
 # -----------------------------------------------------------------------------
 # Data loading
@@ -137,9 +94,7 @@ calories_today = sum(m.get("calories") or 0 for m in meals_today)
 protein_today = sum(m.get("protein_g") or 0 for m in meals_today)
 
 is_dark = st.context.theme.type == "dark"
-ring_track = "#383835" if is_dark else "#e1e0d9"
-ring_ink = "#ffffff" if is_dark else "#0b0b0b"
-ring_muted_ink = "#c3c2b7" if is_dark else "#52514e"
+ring_track, ring_ink, ring_muted_ink = ring_theme(is_dark)
 calorie_accent = "#3987e5" if is_dark else "#2a78d6"
 protein_accent = "#199e70" if is_dark else "#1baf7a"
 
@@ -147,8 +102,8 @@ with body:
     with st.container(border=True):
         st.html(f"""
             <div style="display:flex; flex-wrap:nowrap; justify-content:center; gap:32px;">
-              {_progress_ring(calories_today, CALORIE_GOAL, "", "kcal", calorie_accent, ring_track, ring_ink, ring_muted_ink)}
-              {_progress_ring(protein_today, PROTEIN_GOAL, "g", "protein", protein_accent, ring_track, ring_ink, ring_muted_ink)}
+              {progress_ring(calories_today, CALORIE_GOAL, "", "kcal", calorie_accent, ring_track, ring_ink, ring_muted_ink)}
+              {progress_ring(protein_today, PROTEIN_GOAL, "g", "protein", protein_accent, ring_track, ring_ink, ring_muted_ink)}
             </div>
             """)
 
@@ -409,44 +364,65 @@ except Exception as e:
 NON_SPEND_CATEGORY_PREFIXES = (
     "Payment",
     "Transfer",
-)  # card payoffs, payroll/ACH transfers
+)  # card payoffs, payroll/ACH transfers - excluded on both accounts, so a
+   # credit-card bill paid from checking doesn't get counted as spend twice
 
-daily_totals = {d: 0.0 for d in week_days}
+CARD_TYPES = ["Debit", "Credit"]
+CARD_COLORS = {"Debit": BLUE, "Credit": CREDIT_ORANGE}
+
+
+def _card_type(account_name: str | None) -> str:
+    return "Credit" if (account_name or "").startswith("credit") else "Debit"
+
+
+daily_totals = {(d, card): 0.0 for d in week_days for card in CARD_TYPES}
 for t in transactions:
     if t["category"].startswith(NON_SPEND_CATEGORY_PREFIXES):
         continue
     d = date.fromisoformat(t["authorized_date"])
-    if d in daily_totals:
-        daily_totals[d] += t["amount"]
+    if d in week_days:
+        daily_totals[(d, _card_type(t["account_name"]))] += t["amount"]
 
 df_spend = pd.DataFrame(
-    {"date": list(daily_totals.keys()), "spend": list(daily_totals.values())}
+    [
+        {"date": d, "card": card, "spend": amount}
+        for (d, card), amount in daily_totals.items()
+    ]
 ).sort_values("date")
 df_spend["day_label"] = df_spend["date"].apply(lambda d: d.strftime("%a %-d"))
 total_week_spend = df_spend["spend"].sum()
+total_by_card = df_spend.groupby("card")["spend"].sum()
 
 with body:
     with st.container(border=True):
-        st.markdown(f"**Total: ${total_week_spend:,.2f}** over the last 7 days")
+        st.markdown(
+            f"**Total: \\${total_week_spend:,.2f}** over the last 7 days "
+            f"&mdash; Debit \\${total_by_card.get('Debit', 0):,.2f} / "
+            f"Credit \\${total_by_card.get('Credit', 0):,.2f}"
+        )
         chart = (
             alt.Chart(df_spend)
-            .mark_bar(
-                cornerRadiusTopLeft=4, cornerRadiusTopRight=4, size=24, color=BLUE, tooltip=False
-            )
+            .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4, size=24, tooltip=False)
             .encode(
                 x=alt.X(
                     "day_label:N",
-                    sort=list(df_spend["day_label"]),
+                    sort=[d.strftime("%a %-d") for d in week_days],
                     axis=alt.Axis(title=None, labelAngle=0),
                 ),
                 y=alt.Y("spend:Q", axis=alt.Axis(title="Spend ($)")),
+                color=alt.Color(
+                    "card:N",
+                    scale=alt.Scale(domain=CARD_TYPES, range=[CARD_COLORS[c] for c in CARD_TYPES]),
+                    legend=alt.Legend(title=None, orient="top"),
+                ),
+                order=alt.Order("card:N"),
             )
             .properties(height=280)
             .configure_view(strokeWidth=0)
             .configure_axis(gridColor="#e1e0d9", domainColor="#c3c2b7")
         )
         st.altair_chart(chart, width="stretch")
-        st.caption("Excludes credit-card payments and payroll/ACH transfers.")
+        st.caption("Excludes credit-card bill payments and payroll/ACH transfers. Stacked by debit vs. credit card.")
 
 # -----------------------------------------------------------------------------
 # Reload

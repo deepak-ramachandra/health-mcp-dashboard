@@ -9,7 +9,7 @@ Streamlit Community Cloud): TURSO_DATABASE_URL, TURSO_AUTH_TOKEN,
 HEVY_API_KEY, PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ACCESS_TOKEN.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -24,13 +24,39 @@ HEVY_URL = "https://api.hevyapp.com/v1"
 PLAID_URL = "https://production.plaid.com"
 
 TRANSACTIONS_UPSERT = """
-INSERT INTO transactions (transaction_id, authorized_date, amount, merchant_name, category)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO transactions (transaction_id, authorized_date, amount, merchant_name, category, account_name)
+VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT(transaction_id) DO UPDATE SET
   authorized_date = excluded.authorized_date,
   amount          = excluded.amount,
   merchant_name   = excluded.merchant_name,
-  category        = excluded.category;
+  category        = excluded.category,
+  account_name    = excluded.account_name;
+"""
+
+# `projects` and `milestones` are provisioned by schema migration, same as
+# meals/transactions/sleep - see research_tracking_schema.sql. This module
+# only seeds rows into them and reads/writes them, same as everywhere else
+# here. projects/*.toml (via research_projects.py) is the source of truth for
+# what a project *is*; these tables track that plus completion state, so the
+# projects upsert refreshes every column, while the milestones upsert only
+# ever inserts - it must never stomp on a completed flag you've since set.
+PROJECTS_UPSERT = """
+INSERT INTO projects (id, name, subtitle, kind, source, start_date, horizon_weeks, accent)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+  name          = excluded.name,
+  subtitle      = excluded.subtitle,
+  kind          = excluded.kind,
+  source        = excluded.source,
+  horizon_weeks = excluded.horizon_weeks,
+  accent        = excluded.accent;
+"""
+
+MILESTONES_SEED_UPSERT = """
+INSERT INTO milestones (id, project_id, phase_id, phase_name, seq, label, weeks, completed)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO NOTHING;
 """
 
 
@@ -191,13 +217,14 @@ def _plaid_creds() -> dict:
     }
 
 
-def _txn_row(txn: dict[str, Any]) -> tuple:
+def _txn_row(txn: dict[str, Any], account_name: str | None) -> tuple:
     return (
         txn["transaction_id"],
         txn.get("authorized_date") or txn["date"],
         txn["amount"],
         txn.get("merchant_name") or txn.get("name"),
         " ".join(txn.get("category") or []),
+        account_name,
     )
 
 
@@ -219,10 +246,17 @@ def sync_transactions() -> dict[str, int]:
                 r.raise_for_status()
                 page = r.json()
 
+                account_map = {
+                    a["account_id"]: f"{a['subtype']}-{a['mask']}"
+                    for a in page["accounts"]
+                }
                 with conn:
                     conn.executemany(
                         TRANSACTIONS_UPSERT,
-                        [_txn_row(t) for t in page["added"] + page["modified"]],
+                        [
+                            _txn_row(t, account_map.get(t["account_id"]))
+                            for t in page["added"] + page["modified"]
+                        ],
                     )
                     conn.executemany(
                         "DELETE FROM transactions WHERE transaction_id = ?",
@@ -252,6 +286,7 @@ def _txn_row_to_dict(row) -> dict:
         "amount": row[2],
         "merchant_name": row[3],
         "category": row[4],
+        "account_name": row[5],
     }
 
 
@@ -259,10 +294,109 @@ def get_transactions_by_date_range(start_date: str, end_date: str) -> list[dict]
     conn = _get_db()
     try:
         rows = conn.execute(
-            "SELECT transaction_id, authorized_date, amount, merchant_name, category "
-            "FROM transactions WHERE authorized_date BETWEEN ? AND ?",
+            "SELECT transaction_id, authorized_date, amount, merchant_name, category, account_name FROM transactions WHERE authorized_date BETWEEN ? AND ?",
             (start_date, end_date),
         ).fetchall()
         return [_txn_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _project_row_to_dict(row) -> dict:
+    return {
+        "id": row[0],
+        "name": row[1],
+        "subtitle": row[2],
+        "kind": row[3],
+        "source": row[4],
+        "start_date": row[5],
+        "horizon_weeks": row[6],
+        "accent": row[7],
+    }
+
+
+def seed_projects(rows: list[tuple]) -> None:
+    """Upsert project metadata - every column except id refreshes from
+    projects/*.toml on every call, since that file is the source of truth
+    for what a project *is*. `rows` are (id, name, subtitle, kind, source,
+    start_date, horizon_weeks, accent)."""
+    conn = _get_db()
+    try:
+        conn.executemany(PROJECTS_UPSERT, rows)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_projects() -> list[dict]:
+    conn = _get_db()
+    try:
+        rows = conn.execute(
+            "SELECT id, name, subtitle, kind, source, start_date, horizon_weeks, accent FROM projects"
+        ).fetchall()
+        return [_project_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _milestone_row_to_dict(row) -> dict:
+    return {
+        "id": row[0],
+        "project_id": row[1],
+        "phase_id": row[2],
+        "phase_name": row[3],
+        "seq": row[4],
+        "label": row[5],
+        "weeks": row[6],
+        "completed": bool(row[7]),
+        "completed_at": row[8],
+        "created_at": row[9],
+    }
+
+
+def seed_milestones(rows: list[tuple]) -> None:
+    """Idempotently seed the milestones table - safe to call on every page
+    load. `rows` are (id, project_id, phase_id, phase_name, seq, label,
+    weeks, completed); existing rows (matched by id) are left untouched, so
+    this never clobbers progress already checked off."""
+    conn = _get_db()
+    try:
+        conn.executemany(MILESTONES_SEED_UPSERT, rows)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_milestones(project_id: str | None = None) -> list[dict]:
+    conn = _get_db()
+    try:
+        if project_id is not None:
+            rows = conn.execute(
+                "SELECT id, project_id, phase_id, phase_name, seq, label, weeks, completed, completed_at, created_at "
+                "FROM milestones WHERE project_id = ? ORDER BY seq",
+                (project_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, project_id, phase_id, phase_name, seq, label, weeks, completed, completed_at, created_at "
+                "FROM milestones ORDER BY project_id, seq"
+            ).fetchall()
+        return [_milestone_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def set_milestone_completed(milestone_id: str, completed: bool) -> None:
+    conn = _get_db()
+    try:
+        conn.execute(
+            "UPDATE milestones SET completed = ?, completed_at = ? WHERE id = ?",
+            (
+                1 if completed else 0,
+                datetime.now(timezone.utc).isoformat() if completed else None,
+                milestone_id,
+            ),
+        )
+        conn.commit()
     finally:
         conn.close()

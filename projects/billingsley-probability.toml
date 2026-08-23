@@ -1,0 +1,263 @@
+order = 1
+id = "billingsley-probability"
+name = "PhD-Level Probability"
+subtitle = "Billingsley, Probability and Measure"
+kind = "study_plan"
+source = "Claude_letter.pdf"
+start_date = 2026-07-10
+horizon_weeks = 52          # "~12 months, don't rush it"
+accent = "#8b5cf6"
+item_label = "topics"
+
+[[phases]]
+id = "p0"
+name = "Phase 0 — Analysis runway"
+detail = "Abbott's Understanding Analysis, plus a soft landing on measure theory."
+
+  [[phases.items]]
+  id = "p0-1"
+  label = "Abbott, Ch. 1–2"
+  weeks = 2
+  seed_completed = true
+
+  [[phases.items]]
+  id = "p0-2"
+  label = "Abbott, Ch. 3–4"
+  weeks = 3
+  seed_completed = true
+
+  [[phases.items]]
+  id = "p0-3"
+  label = "Abbott, Ch. 7 (Riemann integration)"
+  weeks = 2
+  seed_completed = true
+
+  [[phases.items]]
+  id = "p0-4"
+  label = "Abbott, Ch. 8 (skim — taste of Lebesgue)"
+  weeks = 1
+  seed_completed = true
+
+  [[phases.items]]
+  id = "p0-5"
+  label = "Supplement: Bartle or Capinski & Kopp, first ~30pp"
+  weeks = 2
+  seed_completed = true
+
+[[phases]]
+id = "p1"
+name = "Phase 1 — Billingsley Ch. 1 (warm-up)"
+detail = "Probability on [0,1] as a sandbox before general measure theory."
+
+  [[phases.items]]
+  id = "p1-1"
+  label = "§1 Borel's normal number theorem"
+  weeks = 1
+
+  [[phases.items]]
+  id = "p1-2"
+  label = "§2 Probability measures"
+  weeks = 1
+
+  [[phases.items]]
+  id = "p1-3"
+  label = "§3 Existence and Extension (Carathéodory)"
+  weeks = 2
+
+  [[phases.items]]
+  id = "p1-4"
+  label = "§4 Denumerable probabilities + Borel–Cantelli"
+  weeks = 1
+
+  [[phases.items]]
+  id = "p1-5"
+  label = "§5 Simple random variables"
+  weeks = 1
+
+  [[phases.items]]
+  id = "p1-6"
+  label = "§6 Law of Large Numbers"
+  weeks = 1
+
+  [[phases.items]]
+  id = "p1-7"
+  label = "§8 Markov chains"
+  weeks = 2
+
+[[phases]]
+id = "p2"
+name = "Phase 2 — Measure & integration"
+detail = "Chapters 2–3: the technical core the rest of the book leans on."
+
+  [[phases.items]]
+  id = "p2-1"
+  label = "§10 General measure spaces"
+  weeks = 1.5
+
+  [[phases.items]]
+  id = "p2-2"
+  label = "§11 Existence & extension (outer measure)"
+  weeks = 1.5
+
+  [[phases.items]]
+  id = "p2-3"
+  label = "§12 Lebesgue measure on R^k"
+  weeks = 1.5
+
+  [[phases.items]]
+  id = "p2-4"
+  label = "§13 Measurable functions"
+  weeks = 1.5
+
+  [[phases.items]]
+  id = "p2-5"
+  label = "§14 Distribution functions"
+  weeks = 1.5
+
+  [[phases.items]]
+  id = "p2-6"
+  label = "§15 The integral: simple → nonnegative"
+  weeks = 1.5
+
+  [[phases.items]]
+  id = "p2-7"
+  label = "§16 The integral: general case, change of variables"
+  weeks = 1.5
+
+  [[phases.items]]
+  id = "p2-8"
+  label = "§17 Convergence theorems (MCT, DCT, Fatou)"
+  weeks = 1.5
+
+  [[phases.items]]
+  id = "p2-9"
+  label = "§18 Fubini's theorem"
+  weeks = 1.5
+
+[[phases]]
+id = "p3"
+name = "Phase 3 — Random variables, expectation, sums"
+detail = "Chapter 4 — everything from Ch. 2–3 starts paying off."
+
+  [[phases.items]]
+  id = "p3-1"
+  label = "§20 Random variables and expectation"
+  weeks = 1
+
+  [[phases.items]]
+  id = "p3-2"
+  label = "§21 Sums of independent r.v.s"
+  weeks = 1
+
+  [[phases.items]]
+  id = "p3-3"
+  label = "§22 SLLN and Kolmogorov's 0–1 law"
+  weeks = 2
+
+  [[phases.items]]
+  id = "p3-4"
+  label = "§23 Poisson process"
+  weeks = 1
+
+[[phases]]
+id = "p4"
+name = "Phase 4 — Convergence of distributions and CLT"
+detail = "Chapter 5 — the analytical highpoint of the book."
+
+  [[phases.items]]
+  id = "p4-1"
+  label = "§25 Weak convergence"
+  weeks = 1
+
+  [[phases.items]]
+  id = "p4-2"
+  label = "§26 Characteristic functions"
+  weeks = 2
+
+  [[phases.items]]
+  id = "p4-3"
+  label = "§27 CLT for i.i.d. summands"
+  weeks = 1
+
+  [[phases.items]]
+  id = "p4-4"
+  label = "§29 Lindeberg–Feller CLT"
+  weeks = 1
+
+  [[phases.items]]
+  id = "p4-5"
+  label = "§9 revisit — Large deviations and LIL"
+  weeks = 1
+
+[[phases]]
+id = "p5"
+name = "Phase 5 — Conditional expectation and martingales"
+detail = "Chapter 6 — required for stochastic processes, finance, ML theory."
+
+  [[phases.items]]
+  id = "p5-1"
+  label = "§32 Radon–Nikodym theorem"
+  weeks = 2
+
+  [[phases.items]]
+  id = "p5-2"
+  label = "§33 Conditional expectation"
+  weeks = 2
+
+  [[phases.items]]
+  id = "p5-3"
+  label = "§34 Conditional distributions"
+  weeks = 2
+
+  [[phases.items]]
+  id = "p5-4"
+  label = "§35 Martingales"
+  weeks = 2
+
+[[phases]]
+id = "p6"
+name = "Phase 6 — Stochastic processes"
+detail = "Chapter 7 — a launchpad into a dedicated stochastic processes text."
+
+  [[phases.items]]
+  id = "p6-1"
+  label = "§37 Kolmogorov existence theorem"
+  weeks = 2
+
+  [[phases.items]]
+  id = "p6-2"
+  label = "§38 Brownian motion"
+  weeks = 2
+
+[[phases]]
+id = "checkpoints"
+name = "Mastery checkpoints (no notes)"
+detail = "What you should be able to do, without notes, once the book is done."
+
+  [[phases.items]]
+  id = "chk-0"
+  label = "Construct Lebesgue measure on R via Carathéodory's theorem"
+
+  [[phases.items]]
+  id = "chk-1"
+  label = "State and prove the Borel–Cantelli lemmas (both directions)"
+
+  [[phases.items]]
+  id = "chk-2"
+  label = "Prove the SLLN via Kolmogorov's maximal inequality; state Etemadi's version"
+
+  [[phases.items]]
+  id = "chk-3"
+  label = "Derive the Lindeberg–Feller CLT; explain why the condition is essentially necessary"
+
+  [[phases.items]]
+  id = "chk-4"
+  label = "Define conditional expectation as a Radon–Nikodym derivative; prove the tower property"
+
+  [[phases.items]]
+  id = "chk-5"
+  label = "State the optional stopping and martingale convergence theorems; apply them"
+
+  [[phases.items]]
+  id = "chk-6"
+  label = "Construct Brownian motion via Kolmogorov's extension theorem"

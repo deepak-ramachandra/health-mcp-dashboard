@@ -1,0 +1,58 @@
+order = 3
+id = "grpo-arc1"
+name = "From Policy Gradients to GRPO"
+subtitle = "Arc I — The Compressed Spine"
+kind = "reading_list"
+source = "policygradientstogrpo.pdf"
+start_date = 2026-08-23
+# No horizon_weeks / per-item weeks: the doc gives a reading order, not a
+# time budget, so this project tracks sequence + completion only - no
+# elapsed/banked/projected-finish pace math (see has_pace in research_projects.py).
+accent = "#e0862b"
+item_label = "papers"
+
+[[phases]]
+id = "arc1"
+name = "Arc I — The Compressed Spine"
+detail = "Five papers, the shortest path that still leaves you able to derive the rest."
+
+  [[phases.items]]
+  id = "arc1-1"
+  label = "Stiennon et al. (2020) — Learning to Summarize from Human Feedback"
+
+  [[phases.items]]
+  id = "arc1-2"
+  label = "Schulman et al. (2017) — Proximal Policy Optimization"
+
+  [[phases.items]]
+  id = "arc1-3"
+  label = "Ahmadian et al. (2024) — Back to Basics: Revisiting REINFORCE-Style Optimization for RLHF (RLOO)"
+
+  [[phases.items]]
+  id = "arc1-4"
+  label = "Shao et al. (2024) — DeepSeekMath, §4 (GRPO)"
+
+  [[phases.items]]
+  id = "arc1-5"
+  label = "Liu et al. (2025) — Understanding R1-Zero-Like Training (Dr. GRPO)"
+
+[[phases]]
+id = "while-reading"
+name = "While you read"
+detail = "Four questions to hold onto across all five papers."
+
+  [[phases.items]]
+  id = "wr-1"
+  label = "Track what each paper assumes about the MDP (bandit vs. sequential control)"
+
+  [[phases.items]]
+  id = "wr-2"
+  label = "Identify what's playing the role of the baseline in each method"
+
+  [[phases.items]]
+  id = "wr-3"
+  label = "Note how many gradient steps per sampled batch each method allows"
+
+  [[phases.items]]
+  id = "wr-4"
+  label = "Watch for the KL anchor and what happens without it"
