@@ -8,6 +8,10 @@ research_projects.py) - adding a new one is a matter of dropping in a new
 database as the rest of the app (`projects` + `milestones` tables, seeded
 idempotently on every load - see data_sources.py /
 research_tracking_schema.sql). Checking a box writes straight to that table.
+
+Page config, the header-hiding CSS, and this page's sidebar label/icon are
+all set once in streamlit_app.py (the router) rather than here - see that
+file's docstring for why.
 """
 
 from datetime import date, datetime, timedelta
@@ -17,15 +21,7 @@ import streamlit as st
 
 import data_sources
 import research_projects as rp
-from ui_components import HIDE_MENU_STYLE, progress_ring, ring_theme
-
-st.markdown(HIDE_MENU_STYLE, unsafe_allow_html=True)
-
-st.set_page_config(
-    page_title="Research progress",
-    page_icon="📚",
-    layout="wide",
-)
+from ui_components import progress_ring, ring_theme
 
 NYC = ZoneInfo("America/New_York")
 today = datetime.now(NYC).date()

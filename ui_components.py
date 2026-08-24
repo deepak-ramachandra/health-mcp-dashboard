@@ -45,10 +45,20 @@ def ring_theme(is_dark: bool) -> tuple[str, str, str]:
     return "#e1e0d9", "#0b0b0b", "#52514e"
 
 
+# Hides the hamburger menu and "Deploy" button Streamlit shows by default.
+# Deliberately does NOT hide header[data-testid="stHeader"] itself (an
+# earlier version of this did, via display:none) - that header is also
+# where the ">>" button lives that re-expands the sidebar/page-nav after
+# you collapse it, and display:none on an ancestor removes descendants from
+# the render tree entirely, no per-element override can bring them back.
+# Losing that control meant a collapsed sidebar had no way to reopen.
+# padding-top is set to clear the header's own ~60px height (with a little
+# room to spare) rather than the near-zero value that worked only when the
+# header was fully hidden.
 HIDE_MENU_STYLE = """
         <style>
         #MainMenu {visibility: hidden;}
-        header[data-testid="stHeader"] {display: none;}
-        [data-testid="stMainBlockContainer"] {padding-top: 1rem;}
+        [data-testid="stAppDeployButton"] {display: none;}
+        [data-testid="stMainBlockContainer"] {padding-top: 4.5rem;}
         </style>
         """
