@@ -4,10 +4,13 @@ gives, so progress is visible next to the health dashboard.
 
 Projects are defined as data files under projects/*.toml (see
 research_projects.py) - adding a new one is a matter of dropping in a new
-.toml file, no code change needed here. Milestones live in the same Turso
-database as the rest of the app (`projects` + `milestones` tables, seeded
-idempotently on every load - see data_sources.py /
-research_tracking_schema.sql). Checking a box writes straight to that table.
+.toml file, no code change needed here. Structure (phases, items, pacing)
+is read straight from those files on every load - it's static, so there's
+nothing to cache or write to a database about it. Completion state lives in
+the `milestones` table in the same Turso database as the rest of the app
+(see data_sources.py / research_tracking_schema.sql), but a row only gets
+written once, the first time its checkbox is checked - a missing row just
+means "not completed yet." Nothing here upserts on page load anymore.
 
 Page config, the header-hiding CSS, and this page's sidebar label/icon are
 all set once in streamlit_app.py (the router) rather than here - see that
@@ -28,16 +31,23 @@ today = datetime.now(NYC).date()
 
 
 # -----------------------------------------------------------------------------
-# Data loading — projects are defined in projects/*.toml; milestones (and
-# each project's own metadata) live in Turso, seeded idempotently from there.
+# Data loading — projects (structure, phases, pacing) come straight from
+# projects/*.toml, read fresh off disk on every load; that's free, so there's
+# nothing to cache or seed about it. Milestones (completion state) live in
+# Turso, but this is a pure read now - a missing row just means "not
+# completed yet" (see _completed() below), so no upserts happen here. A row
+# only gets written once, the first time its checkbox is toggled (_toggle()).
+# This used to also seed both tables on every load, which meant every visit
+# paid for several upsert round trips just to keep already-seeded rows in
+# sync - that's what made this page noticeably slower to load than the main
+# dashboard. See data_sources.py for the one-off tools (seed_projects(),
+# seed_milestones()) that replace what that seeding used to do, for the rare
+# case of registering a brand-new project.
 
 
 @st.cache_data(ttl="1m", show_spinner="Loading projects...")
 def load_state() -> tuple[list[rp.Project], dict[str, dict]]:
     projects = rp.load_projects()
-    data_sources.seed_projects([rp.project_seed_row(p) for p in projects])
-    for project in projects:
-        data_sources.seed_milestones(rp.milestone_seed_rows(project))
     milestones_by_id = {m["id"]: m for m in data_sources.get_milestones()}
     return projects, milestones_by_id
 
@@ -47,6 +57,17 @@ try:
 except Exception as e:
     st.error(f"Couldn't load projects: {e}", icon=":material/error:")
     st.stop()
+
+# Item id -> (id, project_id, phase_id, phase_name, seq, label, weeks), i.e.
+# a milestone row's static fields minus its completion state - sourced from
+# the TOML data already loaded above, not a DB read. Used to write the full
+# row the first time an item's checkbox is checked, since no row may exist
+# for it yet.
+_milestone_static = {
+    row[0]: row[:-1]
+    for project in projects
+    for row in rp.milestone_seed_rows(project)
+}
 
 
 def _key(item_id: str) -> str:
@@ -59,7 +80,9 @@ def _completed(item_id: str) -> bool:
 
 def _toggle(item_id: str) -> None:
     try:
-        data_sources.set_milestone_completed(item_id, st.session_state[_key(item_id)])
+        data_sources.set_milestone_completed(
+            _milestone_static[item_id], st.session_state[_key(item_id)]
+        )
     except Exception as e:
         st.error(f"Couldn't save that checkbox: {e}", icon=":material/error:")
     else:

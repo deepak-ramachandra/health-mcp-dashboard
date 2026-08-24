@@ -35,12 +35,22 @@ ON CONFLICT(transaction_id) DO UPDATE SET
 """
 
 # `projects` and `milestones` are provisioned by schema migration, same as
-# meals/transactions/sleep - see research_tracking_schema.sql. This module
-# only seeds rows into them and reads/writes them, same as everywhere else
-# here. projects/*.toml (via research_projects.py) is the source of truth for
-# what a project *is*; these tables track that plus completion state, so the
-# projects upsert refreshes every column, while the milestones upsert only
-# ever inserts - it must never stomp on a completed flag you've since set.
+# meals/transactions/sleep - see research_tracking_schema.sql.
+# projects/*.toml (via research_projects.py) is the source of truth for what
+# a project and its milestones *are* (structure, labels, pacing) - that's
+# read straight off disk on every page load, no DB round trip needed. These
+# tables only track completion state, and only ever get written to when a
+# checkbox is actually toggled (see set_milestone_completed() below) - not on
+# every page load. A missing milestone row just means "not completed yet."
+#
+# seed_projects()/seed_milestones() below are NOT called from the Research
+# page's normal load path anymore (that was the slow part - every page load
+# was paying for a handful of upsert round trips just to keep already-seeded
+# rows in sync). They're kept as one-off tools: seed_projects() to register a
+# brand-new project's metadata row, seed_milestones() to bulk-precheck a
+# project's already-completed items (its TOML's seed_completed flags) the
+# first time it's added - the same kind of one-off step as apply_schema.py,
+# run once by hand, not on every visit.
 PROJECTS_UPSERT = """
 INSERT INTO projects (id, name, subtitle, kind, source, start_date, horizon_weeks, accent)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -57,6 +67,18 @@ MILESTONES_SEED_UPSERT = """
 INSERT INTO milestones (id, project_id, phase_id, phase_name, seq, label, weeks, completed)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO NOTHING;
+"""
+
+# The real-time write path: fires once per checkbox click, not per page
+# load. Inserts the milestone's full row the first time it's checked (a row
+# may not exist yet, since nothing pre-seeds them), or just flips
+# completed/completed_at if it does.
+MILESTONE_UPSERT = """
+INSERT INTO milestones (id, project_id, phase_id, phase_name, seq, label, weeks, completed, completed_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+  completed    = excluded.completed,
+  completed_at = excluded.completed_at;
 """
 
 
@@ -386,15 +408,21 @@ def get_milestones(project_id: str | None = None) -> list[dict]:
         conn.close()
 
 
-def set_milestone_completed(milestone_id: str, completed: bool) -> None:
+def set_milestone_completed(static_row: tuple, completed: bool) -> None:
+    """Upsert one milestone's completion state - called from the checkbox's
+    on_change, so this is the only time the milestones table gets a write in
+    normal use. `static_row` is (id, project_id, phase_id, phase_name, seq,
+    label, weeks) - the item's fixed fields, sourced from projects/*.toml
+    (research_projects.milestone_seed_rows()) rather than a DB read, since
+    the row itself may not exist yet."""
     conn = _get_db()
     try:
         conn.execute(
-            "UPDATE milestones SET completed = ?, completed_at = ? WHERE id = ?",
+            MILESTONE_UPSERT,
             (
+                *static_row,
                 1 if completed else 0,
                 datetime.now(timezone.utc).isoformat() if completed else None,
-                milestone_id,
             ),
         )
         conn.commit()
