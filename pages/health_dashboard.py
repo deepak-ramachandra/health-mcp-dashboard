@@ -454,7 +454,16 @@ with body:
                         scale=alt.Scale(zero=True),
                     ),
                 )
-                .properties(height=max(40 * len(df_muscle_volume), 80))
+                # Below ~130px total, Streamlit's default chart theme
+                # (theme="streamlit" in st.altair_chart) collides adjacent
+                # y-axis category bands - bars/labels silently overlap and
+                # a row disappears from view even though it's still in
+                # df_muscle_volume (verified: reproduced at height=120,
+                # which is what `40 * len(...)` gives for 2-3 rows; gone
+                # at height>=130). 50px/row with a 160px floor stays clear
+                # of that threshold regardless of how many muscle groups
+                # show up.
+                .properties(height=max(50 * len(df_muscle_volume), 160))
                 .configure_view(strokeWidth=0)
                 .configure_axis(gridColor=ring_track, domainColor=ring_muted_ink)
             )

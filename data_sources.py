@@ -467,8 +467,7 @@ def get_exercise_templates() -> list[dict]:
     conn = _get_db()
     try:
         rows = conn.execute(
-            "SELECT exercise_template_id, title, type, primary_muscle_group, equipment "
-            "FROM exercise_templates"
+            "SELECT exercise_template_id, title, type, primary_muscle_group, equipment FROM exercise_templates"
         ).fetchall()
         return [_exercise_template_row_to_dict(r) for r in rows]
     finally:
