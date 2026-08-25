@@ -219,6 +219,25 @@ def get_workouts(page: int, page_size: int) -> dict:
     return resp.json()
 
 
+def get_workout_events(page: int, page_size: int, since: str) -> dict:
+    """Hevy's change-feed endpoint (see test.ipynb) - unlike get_workouts()
+    above, which always returns the N most recent workouts regardless of
+    date, this only returns workouts created/updated since `since` (a UTC
+    ISO datetime, e.g. "2026-08-01T00:00:00Z"). A caller that only needs a
+    rolling window - the dashboard only ever looks at the past 7 days -
+    can page through just that window instead of re-fetching everything on
+    every load."""
+    headers = {"accept": "application/json", "api-key": _secret("HEVY_API_KEY")}
+    resp = httpx.get(
+        f"{HEVY_URL}/workouts/events",
+        headers=headers,
+        params={"page": page, "pageSize": page_size, "since": since},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 def get_body_measurements(page: int, page_size: int) -> dict:
     headers = {"accept": "application/json", "api-key": _secret("HEVY_API_KEY")}
     resp = httpx.get(
@@ -426,5 +445,31 @@ def set_milestone_completed(static_row: tuple, completed: bool) -> None:
             ),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def _exercise_template_row_to_dict(row) -> dict:
+    return {
+        "exercise_template_id": row[0],
+        "title": row[1],
+        "type": row[2],
+        "primary_muscle_group": row[3],
+        "equipment": row[4],
+    }
+
+
+def get_exercise_templates() -> list[dict]:
+    """Hevy's exercise catalog - read-only here. Populated/refreshed by
+    scripts/get_exercise_templates.py, run by hand whenever Hevy's catalog
+    changes, not on every page load (it's static reference data, not
+    something this app writes to)."""
+    conn = _get_db()
+    try:
+        rows = conn.execute(
+            "SELECT exercise_template_id, title, type, primary_muscle_group, equipment "
+            "FROM exercise_templates"
+        ).fetchall()
+        return [_exercise_template_row_to_dict(r) for r in rows]
     finally:
         conn.close()

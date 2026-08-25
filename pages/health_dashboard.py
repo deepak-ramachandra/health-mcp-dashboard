@@ -6,7 +6,7 @@ all set once in streamlit_app.py (the router) rather than here - see that
 file's docstring for why.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import altair as alt
@@ -37,14 +37,26 @@ def load_meals_today() -> list[dict]:
 
 
 @st.cache_data(ttl="15m", show_spinner="Loading workouts...")
-def load_workouts(max_pages: int = 6) -> list[dict]:
-    workouts = []
+def load_workouts(since: str, max_pages: int = 10) -> list[dict]:
+    """Pulls only workouts changed since `since` via Hevy's /workouts/events
+    change-feed (data_sources.get_workout_events()), rather than always
+    re-fetching the most recent N workouts regardless of date like
+    data_sources.get_workouts() does - this page only ever needs the past
+    7 days, which is far less data than the ~60 most recent workouts. An
+    event with no "workout" key is a deletion event (Hevy's feed reports
+    those too) and is skipped, not a workout to include."""
+    events = []
     for page in range(1, max_pages + 1):
-        data = data_sources.get_workouts(page, 10)
-        workouts.extend(data["workouts"])
+        data = data_sources.get_workout_events(page, 10, since)
+        events.extend(data["events"])
         if page >= data.get("page_count", page):
             break
-    return workouts
+    return [e["workout"] for e in events if "workout" in e]
+
+
+@st.cache_data(ttl="30m", show_spinner="Loading exercise catalog...")
+def load_exercise_templates() -> list[dict]:
+    return data_sources.get_exercise_templates()
 
 
 @st.cache_data(ttl="15m", show_spinner="Loading nutrition history...")
@@ -187,28 +199,109 @@ with body:
                     st.rerun()
 
 # -----------------------------------------------------------------------------
-# Exercises per day + calorie deficit (past 7 days, excluding today)
+# Training volume + calorie deficit (past 7 days, excluding today)
+
+today = datetime.now(NYC).date()
+week_days = [today - timedelta(days=i) for i in range(7, 0, -1)]  # today-7 .. today-1
+
+# Midnight NYC the day before week_days[0], converted to UTC - one day of
+# slack around the actual window so a workout right at the boundary can't
+# be missed by an off-by-one in how Hevy's `since` filter treats the edge.
+# The per-workout date check below still enforces the exact week_days
+# window regardless, so over-asking here only costs a little extra data,
+# never correctness.
+workouts_since = (
+    datetime.combine(week_days[0] - timedelta(days=1), datetime.min.time(), tzinfo=NYC)
+    .astimezone(timezone.utc)
+    .strftime("%Y-%m-%dT%H:%M:%SZ")
+)
 
 try:
-    workouts = load_workouts()
+    workouts = load_workouts(workouts_since)
 except Exception as e:
     with body:
         st.error(f"Couldn't load workouts: {e}", icon=":material/error:")
     workouts = []
 
-today = datetime.now(NYC).date()
-week_days = [today - timedelta(days=i) for i in range(7, 0, -1)]  # today-7 .. today-1
+try:
+    exercise_templates = load_exercise_templates()
+except Exception as e:
+    with body:
+        st.error(f"Couldn't load exercise catalog: {e}", icon=":material/error:")
+    exercise_templates = []
+templates_by_id = {t["exercise_template_id"]: t for t in exercise_templates}
 
-exercise_counts = {d: 0 for d in week_days}
+
+def _exercise_volume(sets: list[dict]) -> tuple[float, str] | None:
+    """Total 'volume' for one exercise's sets, in whichever unit it
+    actually logs - ported from test.ipynb's volume(): checks weight_kg,
+    then distance_meters, then duration_seconds, then falls back to reps,
+    since which of those fields Hevy populates depends on the exercise
+    itself, not just its catalog `type`. Unlike the notebook, the unit
+    returned here is tied to whichever field actually produced the number
+    (kg / km / min / reps) instead of being looked up from `type`
+    separately - the notebook's type-based label didn't match what its own
+    formula computed for distance-based exercises (e.g. cycling came out
+    in meters, not seconds). Distance and duration are converted to
+    km/minutes rather than left as raw meters/seconds, just for
+    readability."""
+    if not sets:
+        return None
+    first = sets[0]
+    if first.get("weight_kg") is not None:
+        total = sum((s.get("weight_kg") or 0) * (s.get("reps") or 0) for s in sets)
+        return round(total, 2), "kg"
+    if first.get("distance_meters") is not None:
+        total_m = sum(
+            (s.get("distance_meters") or 0) * (s.get("reps") or 1) for s in sets
+        )
+        return round(total_m / 1000, 2), "km"
+    if first.get("duration_seconds") is not None:
+        total_s = sum(
+            (s.get("duration_seconds") or 0) * (s.get("reps") or 1) for s in sets
+        )
+        return round(total_s / 60, 1), "min"
+    return sum(s.get("reps") or 0 for s in sets), "reps"
+
+
+# Primary-muscle-group volume only (no secondary-muscle credit) for
+# weight_reps exercises; everything else (Table Tennis, Cycling, ...) is
+# enumerated separately in whatever unit it actually logs, since there's no
+# kg figure to fold it into.
+muscle_volume_kg: dict[str, float] = {}
+other_activity: dict[tuple[str, str], float] = {}
+
 for w in workouts:
     d = datetime.fromisoformat(w["start_time"]).astimezone(NYC).date()
-    if d in exercise_counts:
-        exercise_counts[d] += len(w.get("exercises") or [])
+    if d not in week_days:
+        continue
+    for ex in w.get("exercises") or []:
+        result = _exercise_volume(ex.get("sets") or [])
+        if result is None:
+            continue
+        value, unit = result
+        template = templates_by_id.get(ex.get("exercise_template_id"))
+        if template is None:
+            continue  # not in the catalog (e.g. a custom exercise) - skip
+        if unit == "kg":
+            muscle = template["primary_muscle_group"]
+            muscle_volume_kg[muscle] = muscle_volume_kg.get(muscle, 0) + value
+        else:
+            key = (template["title"], unit)
+            other_activity[key] = other_activity.get(key, 0) + value
 
-df_exercises = pd.DataFrame(
-    {"date": week_days, "exercises": [exercise_counts[d] for d in week_days]}
-)
-df_exercises["day_label"] = df_exercises["date"].apply(lambda d: d.strftime("%a %-d"))
+df_muscle_volume = pd.DataFrame(
+    [{"muscle": m, "kg": round(v, 1)} for m, v in muscle_volume_kg.items()],
+    columns=["muscle", "kg"],
+).sort_values("kg", ascending=False)
+
+df_other_activity = pd.DataFrame(
+    [
+        {"activity": title, "total": round(v, 1), "unit": unit}
+        for (title, unit), v in other_activity.items()
+    ],
+    columns=["activity", "total", "unit"],
+).sort_values("total", ascending=False)
 
 try:
     meals_week = load_meals_range(str(week_days[0]), str(week_days[-1]))
@@ -226,9 +319,7 @@ for m in meals_week:
 df_deficit = pd.DataFrame(
     {
         "date": week_days,
-        "deficit": [
-            CALORIE_EXPENDITURE - daily_calories_week[d] for d in week_days
-        ],
+        "deficit": [CALORIE_EXPENDITURE - daily_calories_week[d] for d in week_days],
     }
 )
 df_deficit["day_label"] = df_deficit["date"].apply(lambda d: d.strftime("%a %-d"))
@@ -259,7 +350,9 @@ df_weight["weight_kg"] = df_weight["date"].map(weight_by_date)
 # Weigh-ins are sparse, especially early on; fill gaps with the next
 # available reading so the EWMA isn't skewed by missing days.
 df_weight["weight_kg"] = df_weight["weight_kg"].bfill()
-df_weight["ewma"] = df_weight["weight_kg"].ewm(span=WEIGHT_EWMA_SPAN, adjust=False).mean()
+df_weight["ewma"] = (
+    df_weight["weight_kg"].ewm(span=WEIGHT_EWMA_SPAN, adjust=False).mean()
+)
 
 latest_weight_ewma = df_weight["ewma"].dropna()
 weight_header = (
@@ -270,10 +363,18 @@ weight_header = (
 
 with body:
     with st.container(border=True):
-        st.markdown(f"**Calorie deficit** &mdash; 7-day avg: {rolling_avg_deficit:,.0f} kcal")
+        st.markdown(
+            f"**Calorie deficit** &mdash; 7-day avg: {rolling_avg_deficit:,.0f} kcal"
+        )
         bars = (
             alt.Chart(df_deficit)
-            .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4, size=24, color=calorie_accent, tooltip=False)
+            .mark_bar(
+                cornerRadiusTopLeft=4,
+                cornerRadiusTopRight=4,
+                size=24,
+                color=calorie_accent,
+                tooltip=False,
+            )
             .encode(
                 x=alt.X(
                     "day_label:N",
@@ -299,7 +400,9 @@ with body:
             .configure_axis(gridColor=ring_track, domainColor=ring_muted_ink)
         )
         st.altair_chart(chart, width="stretch")
-        st.caption(f"Expenditure assumed at {CALORIE_EXPENDITURE:,} kcal/day. Dashed line is the 7-day average.")
+        st.caption(
+            f"Expenditure assumed at {CALORIE_EXPENDITURE:,} kcal/day. Dashed line is the 7-day average."
+        )
 
     with st.container(border=True):
         st.markdown(weight_header)
@@ -328,27 +431,46 @@ with body:
         )
 
     with st.container(border=True):
-        st.markdown("**Exercises** &mdash; past 7 days")
-        chart = (
-            alt.Chart(df_exercises)
-            .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4, size=24, color=GOOD_GREEN, tooltip=False)
-            .encode(
-                x=alt.X(
-                    "day_label:N",
-                    sort=list(df_exercises["day_label"]),
-                    axis=alt.Axis(title=None, labelAngle=0),
-                ),
-                y=alt.Y(
-                    "exercises:Q",
-                    axis=alt.Axis(title="Exercises", tickMinStep=1),
-                    scale=alt.Scale(zero=True),
-                ),
+        st.markdown("**Volume by muscle group** &mdash; past 7 days")
+        if not df_muscle_volume.empty:
+            chart = (
+                alt.Chart(df_muscle_volume)
+                .mark_bar(
+                    cornerRadiusTopRight=4,
+                    cornerRadiusBottomRight=4,
+                    size=16,
+                    color=GOOD_GREEN,
+                    tooltip=False,
+                )
+                .encode(
+                    y=alt.Y(
+                        "muscle:N",
+                        sort=list(df_muscle_volume["muscle"]),
+                        axis=alt.Axis(title=None),
+                    ),
+                    x=alt.X(
+                        "kg:Q",
+                        axis=alt.Axis(title="Volume (kg)"),
+                        scale=alt.Scale(zero=True),
+                    ),
+                )
+                .properties(height=max(40 * len(df_muscle_volume), 80))
+                .configure_view(strokeWidth=0)
+                .configure_axis(gridColor=ring_track, domainColor=ring_muted_ink)
             )
-            .properties(height=220)
-            .configure_view(strokeWidth=0)
-            .configure_axis(gridColor=ring_track, domainColor=ring_muted_ink)
-        )
-        st.altair_chart(chart, width="stretch")
+            st.altair_chart(chart, width="stretch")
+            st.caption(
+                "Weight-based exercises only, credited to the primary muscle group - no secondary-muscle credit."
+            )
+        else:
+            st.caption("No weight_reps exercises logged in the past 7 days.")
+
+        if not df_other_activity.empty:
+            st.divider()
+            st.caption(
+                "Everything else, in its own unit - no kg figure to fold these into."
+            )
+            st.dataframe(df_other_activity, hide_index=True, width="stretch")
 
 # -----------------------------------------------------------------------------
 # Weekly spend
@@ -364,7 +486,7 @@ NON_SPEND_CATEGORY_PREFIXES = (
     "Payment",
     "Transfer",
 )  # card payoffs, payroll/ACH transfers - excluded on both accounts, so a
-   # credit-card bill paid from checking doesn't get counted as spend twice
+# credit-card bill paid from checking doesn't get counted as spend twice
 
 CARD_TYPES = ["Debit", "Credit"]
 CARD_COLORS = {"Debit": BLUE, "Credit": CREDIT_ORANGE}
@@ -401,7 +523,9 @@ with body:
         )
         chart = (
             alt.Chart(df_spend)
-            .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4, size=24, tooltip=False)
+            .mark_bar(
+                cornerRadiusTopLeft=4, cornerRadiusTopRight=4, size=24, tooltip=False
+            )
             .encode(
                 x=alt.X(
                     "day_label:N",
@@ -411,7 +535,9 @@ with body:
                 y=alt.Y("spend:Q", axis=alt.Axis(title="Spend ($)")),
                 color=alt.Color(
                     "card:N",
-                    scale=alt.Scale(domain=CARD_TYPES, range=[CARD_COLORS[c] for c in CARD_TYPES]),
+                    scale=alt.Scale(
+                        domain=CARD_TYPES, range=[CARD_COLORS[c] for c in CARD_TYPES]
+                    ),
                     legend=alt.Legend(title=None, orient="top"),
                 ),
                 order=alt.Order("card:N"),
@@ -421,7 +547,9 @@ with body:
             .configure_axis(gridColor="#e1e0d9", domainColor="#c3c2b7")
         )
         st.altair_chart(chart, width="stretch")
-        st.caption("Excludes credit-card bill payments and payroll/ACH transfers. Stacked by debit vs. credit card.")
+        st.caption(
+            "Excludes credit-card bill payments and payroll/ACH transfers. Stacked by debit vs. credit card."
+        )
 
 # -----------------------------------------------------------------------------
 # Reload
