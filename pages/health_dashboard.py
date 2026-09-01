@@ -199,10 +199,18 @@ with body:
                     st.rerun()
 
 # -----------------------------------------------------------------------------
-# Training volume + calorie deficit (past 7 days, excluding today)
+# Training volume (past 7 days, through today) + calorie deficit (past 7
+# days, excluding today - see workout_days vs week_days below)
 
 today = datetime.now(NYC).date()
 week_days = [today - timedelta(days=i) for i in range(7, 0, -1)]  # today-7 .. today-1
+# Workouts get their own window that runs through today (today-6 .. today)
+# rather than stopping yesterday like week_days - a workout done earlier
+# today should show up right away instead of waiting until tomorrow. The
+# calorie deficit and spend cards below stay on week_days/yesterday on
+# purpose: today's numbers there are still incomplete (dinner not logged
+# yet, more spending still to come) and would read as misleadingly low.
+workout_days = [today - timedelta(days=i) for i in range(6, -1, -1)]
 
 # Midnight NYC the day before week_days[0], converted to UTC - one day of
 # slack around the actual window so a workout right at the boundary can't
@@ -273,7 +281,7 @@ other_activity: dict[tuple[str, str], float] = {}
 
 for w in workouts:
     d = datetime.fromisoformat(w["start_time"]).astimezone(NYC).date()
-    if d not in week_days:
+    if d not in workout_days:
         continue
     for ex in w.get("exercises") or []:
         result = _exercise_volume(ex.get("sets") or [])
