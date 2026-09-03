@@ -182,6 +182,7 @@ with body:
                     "Time",
                     value=datetime.now(NYC).time(),
                     label_visibility="collapsed",
+                    key="log_meal_time",
                 )
                 logged = cols[3].form_submit_button("Log", width="stretch")
             if logged:
