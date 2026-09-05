@@ -37,7 +37,7 @@ def load_meals_today() -> list[dict]:
 
 
 @st.cache_data(ttl="15m", show_spinner="Loading workouts...")
-def load_workouts(since: str, max_pages: int = 10) -> list[dict]:
+def load_workouts(start_date: str, end_date: str) -> list[dict]:
     """Pulls only workouts changed since `since` via Hevy's /workouts/events
     change-feed (data_sources.get_workout_events()), rather than always
     re-fetching the most recent N workouts regardless of date like
@@ -45,13 +45,8 @@ def load_workouts(since: str, max_pages: int = 10) -> list[dict]:
     7 days, which is far less data than the ~60 most recent workouts. An
     event with no "workout" key is a deletion event (Hevy's feed reports
     those too) and is skipped, not a workout to include."""
-    events = []
-    for page in range(1, max_pages + 1):
-        data = data_sources.get_workout_events(page, 10, since)
-        events.extend(data["events"])
-        if page >= data.get("page_count", page):
-            break
-    return [e["workout"] for e in events if "workout" in e]
+    data_sources.sync_workouts()
+    return data_sources.get_workouts_by_date_range(start_date, end_date)
 
 
 @st.cache_data(ttl="30m", show_spinner="Loading exercise catalog...")
@@ -225,8 +220,14 @@ workouts_since = (
     .strftime("%Y-%m-%dT%H:%M:%SZ")
 )
 
+workouts_end = (
+    datetime.combine(today, datetime.max.time(), tzinfo=NYC)
+    .astimezone(timezone.utc)
+    .strftime("%Y-%m-%dT%H:%M:%SZ")
+)
+
 try:
-    workouts = load_workouts(workouts_since)
+    workouts = load_workouts(workouts_since, workouts_end)
 except Exception as e:
     with body:
         st.error(f"Couldn't load workouts: {e}", icon=":material/error:")
